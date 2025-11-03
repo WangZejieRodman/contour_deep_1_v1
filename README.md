@@ -1,102 +1,101 @@
-# Contour Deep 1+
-
-深度学习场景识别系统 - 基于多层BEV表示的点云检索网络
-
-## 📋 项目简介
-
-本项目是对传统Contour Context方法的深度学习改进（方向1），通过端到端训练的神经网络提取点云场景的全局特征，用于大规模场景识别与定位。
-
-**数据集**: Chilean Underground Mine Dataset  
-**Baseline**: Contour Context (Recall@1: 73.14%)  
-**目标**: 超越传统方法，提升检索准确率
-
-## 🚀 快速开始
-
-### 1. 环境配置
-```bash
-# Python 3.8+, PyTorch 2.0+, CUDA 11.8+
-pip install -r requirements.txt
+输入：原始点云
+  ↓
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+阶段1：数据预处理（离线，一次性）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ↓
+自适应BEV生成（bev_generator_adaptive.py）
+  · 固定层厚0.625m，中心对齐分层（8层）
+  · 每层二值图 [8, 200, 200]
+  · 垂直复杂度图 [200, 200]
+  ↓
+保存到缓存 train_adaptive/*.npz, test_adaptive/*.npz
+  · 每个点云对应一个.npz文件
+  · 包含：bev_layers, vcd, metadata
+  ↓
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+阶段2：训练（在线）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ↓
+加载缓存的BEV (dataset_retrieval_adaptive.py)
+  · 每次getitem随机加载anchor/positive/negative
+  ↓
+数据增强（训练时，每次随机）
+  · 旋转：0~360°（独立随机）
+  · 平移：xy ±5m（可选）
+  · 归一化 → 堆叠为 [9, 200, 200]
+  ↓
+输入网络 (retrieval_net.py)
+  ↓
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+网络架构
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ↓
+[1] PreConv (9→32通道)
+  · 提取基础特征
+  ↓
+[2] STN2d (旋转对齐)
+  · LocalizationNetwork预测角度θ
+  · 构造旋转矩阵
+  · affine_grid + grid_sample
+  ↓
+[3] MultiScaleConv (32→128通道)
+  · 3×3, 7×7, 15×15并行卷积
+  · 融合多尺度特征
+  ↓
+[4] SpatialAttention
+  · 突出重要区域
+  ↓
+[5] ResBlock × 3 (下采样)
+  · 200→100→50→25
+  ↓
+[6] GlobalPooling (GAP + GMP)
+  · [128, 25, 25] → [256]
+  ↓
+[7] FC + L2归一化
+  · [256] → [128] (最终特征向量)
+  ↓
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+训练损失
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ↓
+Triplet Loss (Hard Mining)
+  · anchor, positive, negatives
+  · margin = 0.6
+  · 拉近正样本，推远负样本
+  ↓
+反向传播 → 更新参数
+  ↓
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+训练策略
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  · 训练集：增强 (旋转0~360°)
+  · 验证集：增强 (旋转0~360°)  ← 关键改进
+  · Epochs: 100
+  · Optimizer: AdamW (lr=1e-4)
+  · Scheduler: Cosine + Warmup
+  ↓
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+输出：特征向量 [128]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ↓
+评估：KNN检索
+  · 提取数据库和查询特征
+  · 构建KNN索引
+  · 计算Recall@1, 5, 10, 25
+  ↓
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+当前性能（100 epoch，验证集增强）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Recall@1 (0°):   98.43%
+  Recall@1 (平均): 81.29%
+  标准差:          6.48%
+  
+  问题：STN角度集中在 [-90°, -45°]
+       缺少正角度，旋转不变性不完全
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-### 2. 数据预处理
-```bash
-# 生成训练/验证集BEV缓存
-python scripts/preprocess_bev_adaptive.py --split all
-
-# 生成评估集BEV缓存（跨时间段）
-python scripts/preprocess_bev_evaluation_adaptive.py --split all
+**关键流程**：
 ```
-
-### 3. 训练
-```bash
-python scripts/run_training_adaptive.py
-```
-
-### 4. 评估
-```bash
-# 训练集自查询（模型正确性检查）
-python scripts/analyze_and_eval_self_adaptive.py
-
-# 跨时间段评估（真实性能）
-python scripts/analyze_and_eval_adaptive.py
-```
-
-## 📊 核心创新
-
-- **多层BEV表示**: 8层高度分层 + 垂直复杂度图
-- **多尺度特征提取**: 3×3, 7×7, 15×15卷积并行
-- **双重注意力机制**: 空间注意力 + 跨层注意力
-- **Triplet Loss**: Hard Mining策略
-
-## 📁 项目结构
-
-```
-contour_deep_1/
-├── configs/          # YAML配置文件
-├── data/             # 数据加载与预处理
-├── models/           # 网络架构
-├── training/         # 训练框架
-├── scripts/          # 执行脚本
-└── utils/            # 工具函数
-```
-
-## 🎯 当前进展
-
-- ✅ **Day 1-7**: 框架搭建、数据准备、网络实现
-- ✅ **Day 8**: 完整训练（50 epochs）
-- ✅ **Day 9**: 评估分析
-
-**最新结果**:
-- 训练集自查询: Recall@1 = XX%
-- 跨时间段评估: Recall@1 = XX%（目标 >78%）
-
-## ⚙️ 配置说明
-
-- `config_base.yaml`: BEV生成、数据集、硬件配置
-- `config_retrieval.yaml`: 模型、优化器、训练超参数
-
-## 📈 监控训练
-
-```bash
-tensorboard --logdir logs
-```
-
-## 🔧 故障排查
-
-1. **OOM错误**: 减小batch_size或使用梯度累积
-2. **缓存缺失**: 先运行预处理脚本
-3. **性能不佳**: 检查数据增强、调整margin参数
-
-## 📝 下一步
-
-- [ ] Day 10: 超参数优化
-- [ ] Day 11-14: 方向2（BCI匹配网络）
-- [ ] Day 15+: 端到端联合训练
-
-## 📄 许可
-
-MIT License
-
-## 🙏 致谢
-
-基于原始Contour Context工作进行改进
+点云 → 预处理(BEV缓存) → 加载+增强 → STN对齐 → 特征提取 → Triplet Loss → 输出[128]
