@@ -1,0 +1,42 @@
+# ============================================
+# Contour Deep - Retrieval Network Training Config
+# ============================================
+
+# 模型配置
+model:
+  output_dim: 128  # 特征维度
+
+# 数据配置
+data:
+  num_negatives: 10  # 每个anchor的负样本数量
+  max_cache_size: 500  # 内存缓存大小（LRU）
+
+# 优化器配置
+optimizer:
+  optimizer: adamw
+  learning_rate: 0.0001  # 1e-4
+  weight_decay: 0.0001  # 1e-4
+
+# 学习率调度配置
+scheduler:
+  scheduler: cosine
+  warmup_epochs: 5  # 缩短warmup（从5→3）
+
+# 损失函数配置
+loss:
+  loss: triplet
+  margin: 0.6
+  mining: all
+
+# 训练配置
+training:
+  num_epochs: 100  # 缩短到20 epochs（从50→20）
+  batch_size: 4
+  num_workers: 4
+  save_freq: 5
+
+# 日志配置
+logging:
+  log_dir: logs
+  checkpoint_dir: checkpoints
+  use_tensorboard: true

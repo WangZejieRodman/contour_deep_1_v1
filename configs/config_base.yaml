@@ -1,0 +1,175 @@
+# ============================================
+# Contour Deep - Base Configuration
+# 基础配置文件：定义BEV生成和轮廓提取的核心参数
+# ============================================
+
+# 项目基本信息
+project:
+  name: "contour_deep_1++"
+  version: "1.0.0"
+  description: "Deep learning-based place recognition using multi-layer BEV representation"
+
+# 数据集配置
+dataset:
+  name: "Chilean_Underground_Mine"
+  base_path: "/home/wzj/pan2/Chilean_Underground_Mine_Dataset_Many_Times/"
+  runs_folder: "chilean/"
+  pointcloud_folder: "/pointcloud_20m_10overlap/"
+
+  # 训练/测试数据路径
+  train_pickle: "training_queries_chilean_period.pickle"
+  test_pickle: "test_queries_chilean_period.pickle"
+
+  # Session划分
+  train_sessions:
+    start: 100
+    end: 179
+  test_sessions:
+    start: 180
+    end: 209
+
+# BEV生成配置
+bev:
+  # 层级划分（高度阈值，单位：米）
+  # 定义：8层配置，层间距0.625m，范围[0, 5m]
+  num_layers: 8
+  lv_grads: [0.0, 0.625, 1.25, 1.875, 2.5, 3.125, 3.75, 4.375, 5.0]
+
+  # 空间分辨率（单位：米）
+  resolution: 0.1  # 0.2m per pixel，消融实验最优值
+
+  # 网格尺寸（像素数）
+  grid_size:
+    n_row: 200  # 200 × 0.2m = 40m 覆盖范围
+    n_col: 200
+
+  # ROI参数
+  roi_radius: 15.0  # 单位：米，感兴趣区域半径
+  lidar_height: 0.0  # 单位：米，激光雷达安装高度（地下环境接近地面）
+  blind_zone: 0.0    # 单位：米^2，盲区半径的平方
+
+  # 数据归一化
+  normalization:
+    method: "min_max"  # min_max 或 standard
+    bev_range: [0, 255]  # BEV原始值域
+    vcd_range: [0, 8]    # 垂直复杂度图值域（最多8层）
+    target_range: [0, 1] # 目标归一化范围
+
+# 轮廓提取配置（用于生成BCI）
+contour:
+  # 最小轮廓尺寸（像素数）
+  min_cell_count: 1  # 保留极小轮廓（消融实验发现小轮廓的拓扑连接作用重要）
+
+  # 用于检索键生成的轮廓数量（每层）
+  piv_firsts: 12  # 每层选取前12个最大轮廓
+
+  # 轮廓视图统计配置
+  view_stat:
+    min_cell_cov: 4
+    point_sigma: 0.01
+    com_bias_threshold: 0.5
+
+# BCI（二进制星座标识）配置
+bci:
+  # BCI邻域搜索参数
+  dist_firsts: 12  # 每层搜索前12个最大轮廓作为潜在邻居
+  neighbor_layer_range: 3  # 邻域层级范围：±3层（消融实验最优值）
+
+  # 距离编码参数
+  bits_per_layer: 20  # 每层20个距离bins（消融实验最优值）
+  distance_range:
+    min: 1.0   # 最小距离（米）
+    max: 20.0  # 最大距离（米）
+
+  # 角度一致性阈值
+  angular_threshold: 0.19634954  # π/16 弧度 ≈ 11.25度
+
+  # 是否使用垂直结构复杂度
+  use_vertical_complexity: true
+
+# 数据增强配置（训练时使用）
+augmentation:
+  enabled: true
+
+  # 旋转增强
+  rotation:
+    enabled: true
+    range: [0, 360]
+    probability: 1.0
+
+  # 平移增强
+  translation:
+    enabled: false
+    range: [-0.0, 0.0]
+    probability: 0
+
+  # 高度抖动（模拟地形变化）
+  height_jitter:
+    enabled: false
+    std: 0.1  # 标准差，米
+    probability: 0.3
+
+# 预处理配置（BEV缓存）
+preprocessing:
+  # 是否启用BEV缓存（预先生成所有BEV）
+  enable_cache: true
+
+  # 缓存目录
+  cache_dir: "/home/wzj/pan1/contour_deep_1++/data/Chilean_BEV_Cache"
+  train_cache_subdir: "train"
+  test_cache_subdir: "test"
+
+  # 缓存文件格式
+  cache_format: "npz"  # npz（numpy压缩）或 pt（pytorch）
+
+  # 是否同时缓存轮廓信息（用于BCI生成）
+  cache_contours: true
+
+# 可视化配置
+visualization:
+  # 保存可视化结果
+  save_dir: "results/visualizations/"
+
+  # 是否可视化注意力图
+  attention_maps: true
+
+  # 是否可视化BEV层
+  bev_layers: true
+
+  # 颜色映射
+  colormap: "viridis"
+
+# 日志配置
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  log_dir: "logs/"
+
+  # 是否使用tensorboard
+  use_tensorboard: true
+  tensorboard_dir: "logs/tensorboard/"
+
+# 硬件配置
+hardware:
+  # 设备
+  device: "cuda"  # cuda 或 cpu
+  gpu_ids: [0]    # 使用的GPU ID列表
+
+  # 多进程数据加载
+  num_workers: 4
+
+  # 是否使用混合精度训练
+  mixed_precision: false
+
+# 随机种子（确保可重复性）
+seed: 42
+
+# 其他全局参数
+global:
+  # 是否启用调试模式（输出更多信息）
+  debug: false
+
+  # checkpoint保存频率
+  save_freq: 5  # 每5个epoch保存一次
+
+  # 早停耐心值
+  early_stopping_patience: 10
